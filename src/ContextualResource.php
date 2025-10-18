@@ -9,12 +9,33 @@ class ContextualResource extends JsonResource
 {
     use ResourceContext;
 
+    protected array $priorityAttributes = [];
+
+    public function setPriorityAttributes(array $attributes): self
+    {
+        $this->priorityAttributes = $attributes;
+        return $this;
+    }
+
+    public function getPriorityAttributes(): array
+    {
+        return $this->priorityAttributes;
+    }
+
+    public function usePriorityForAttribute(string $attribute): self
+    {
+        if (!in_array($attribute, $this->priorityAttributes)) {
+            $this->priorityAttributes[] = $attribute;
+        }
+        return $this;
+    }
+
     public function toArray($request = null)
     {
         $this->pushContext();
 
         try {
-            $result = $this->transform($request);
+            $result = $this->transformResource($request);
 
             if (is_array($result)) {
                 $result = $this->processNestedResources($result);
@@ -26,7 +47,7 @@ class ContextualResource extends JsonResource
         }
     }
 
-    protected function transform($request)
+    protected function transformResource($request)
     {
         return parent::toArray($request);
     }
@@ -62,7 +83,7 @@ class ContextualResource extends JsonResource
         return parent::whenLoaded($relationship, $value, $default);
     }
 
-    public function mergeWhen($condition, $value)
+    public function mergeWhen($condition, $value, $default = null)
     {
         if (is_array($value)) {
             $value = $this->processNestedResources($value);
@@ -70,7 +91,7 @@ class ContextualResource extends JsonResource
             $value = $this->propagateContextToResource($value);
         }
 
-        return parent::mergeWhen($condition, $value);
+        return parent::mergeWhen($condition, $value, $default);
     }
 
     protected function relationLoaded($relationship): bool

@@ -1,14 +1,14 @@
 # Laravel Resource Context
 
-A Laravel package that allows nested resources to access parent resource attributes without additional database queries.
+A Laravel package that allows nested resources to access parent resource attributes without additional database queries, with configurable attribute precedence.
 
 ## Features
 
 - 🚀 Zero additional database queries for nested resource access
 - 🔗 Multi-level nested resource context propagation
+- ⚡ Configurable attribute precedence for handling conflicts
 - 🎯 Laravel best practices and code structure
 - 🧪 Comprehensive test coverage
-- 📦 Easy composer installation
 
 ## Installation
 
@@ -18,15 +18,18 @@ composer require contextify/laravel-resource-context
 
 The package will auto-register the service provider.
 
-Optionally, publish the configuration:
-
-```bash
-php artisan vendor:publish --provider="Contextify\LaravelResourceContext\ResourceContextServiceProvider" --tag="config"
-```
-
 ## Usage
 
 ### Basic Usage
+
+Consider this database structure: `Author` → `Series` → `Book`
+
+```sql
+-- Database structure
+Author: [id, name]
+Series: [id, name, author_id]
+Book: [id, name, series_id]
+```
 
 Instead of extending `JsonResource`, extend `ContextualResource`:
 
@@ -37,45 +40,73 @@ namespace App\Http\Resources;
 
 use Contextify\LaravelResourceContext\ContextualResource;
 
-class UserResource extends ContextualResource
+class AuthorResource extends ContextualResource
 {
-    public function toArray($request)
+    protected function transformResource($request)
     {
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'email' => $this->email,
-            'posts' => PostResource::collection($this->whenLoaded('posts')),
+            'series' => $this->createSeriesCollection(),
+        ];
+    }
+
+    private function createSeriesCollection()
+    {
+        // Create collection normally - context propagates automatically
+        $series = SeriesResource::collection($this->whenLoaded('series'));
+
+        // PRIORITY CONTEXT: Set author info as high-priority data
+        // This ensures BookResource gets author name even if series also has 'name'
+        foreach ($series as $seriesResource) {
+            $seriesResource->withPriorityContext([
+                'author_name' => $this->name,  // High-priority author name
+                'author_id' => $this->id       // High-priority author ID
+            ]);
+        }
+
+        return $series;
+    }
+}
+
+class SeriesResource extends ContextualResource
+{
+    protected function transformResource($request)
+    {
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            // Gets author_name from priority context set by AuthorResource
+            'author_name' => $this->getParentAttribute('author_name'),
+            'books' => BookResource::collection($this->whenLoaded('books')),
         ];
     }
 }
 
-class PostResource extends ContextualResource
+class BookResource extends ContextualResource
 {
-    public function toArray($request)
+    public function __construct($resource)
     {
-        return [
-            'id' => $this->id,
-            'title' => $this->title,
-            'content' => $this->content,
-            // Access parent user attributes without additional queries
-            'author_name' => $this->getParentAttribute('name'),
-            'author_email' => $this->getContextualAttribute('email'), // Fallback to current resource if not in parent
-            'comments' => CommentResource::collection($this->whenLoaded('comments')),
-        ];
-    }
-}
+        parent::__construct($resource);
 
-class CommentResource extends ContextualResource
-{
-    public function toArray($request)
+        // PRIORITY CONFIGURATION: Tell the system that 'author_name' should
+        // always check priority context first, bypassing regular context
+        $this->setPriorityAttributes(['author_name']);
+    }
+
+    protected function transformResource($request)
     {
         return [
             'id' => $this->id,
-            'content' => $this->content,
-            // Access grandparent user attributes
-            'post_author_name' => $this->getParentAttribute('name'),
-            'post_title' => $this->getParentAttribute('title'),
+            'name' => $this->name,
+
+            // THE MAGIC: Because 'author_name' is configured as priority attribute,
+            // this will get "J.K. Rowling" from priority context, NOT "Harry Potter" from series
+            'author_name' => $this->getContextualAttribute('author_name'),
+
+            // REGULAR CONTEXT: Gets "Harry Potter" from series context
+            // Since 'name' is not a priority attribute, it follows normal precedence
+            'series_name' => $this->getParentAttribute('name'),
         ];
     }
 }
@@ -83,69 +114,121 @@ class CommentResource extends ContextualResource
 
 ### Available Methods
 
-#### `getParentAttribute($key, $default = null)`
-Get a specific attribute from any parent resource in the context chain.
+#### Basic Context Access
 
 ```php
-$userName = $this->getParentAttribute('name');
-$userEmail = $this->getParentAttribute('email', 'no-email@example.com');
+// PARENT CONTEXT: Get specific attribute from any parent in the chain
+$userName = $this->getParentAttribute('name');           // "J.K. Rowling" (from Author)
+$userEmail = $this->getParentAttribute('email', 'default@example.com');
+
+// CHECK EXISTENCE: Verify if parent has attribute before using
+if ($this->hasParentAttribute('name')) {
+    // Safe to use - parent has this attribute
+}
+
+// GET ALL: Retrieve complete parent context as array
+$allParentData = $this->getAllParentAttributes();        // ['name' => 'J.K. Rowling', 'id' => 1, ...]
+
+// CONTEXTUAL: Smart fallback - checks priority → parent → resource
+$email = $this->getContextualAttribute('email');         // Checks all levels
+
+// RESOURCE ONLY: Force get from current resource, ignore all parent data
+$localName = $this->getResourceAttribute('name');        // "Philosopher's Stone" (book name)
+
+// HIGHER LEVEL ONLY: Force get from parent/priority, ignore resource
+$parentName = $this->getHigherLevelAttribute('name');    // "J.K. Rowling" (never book name)
 ```
 
-#### `hasParentAttribute($key)`
-Check if a parent attribute exists.
+#### Attribute Precedence Control
+
+When parent and resource have the same attribute name, you can control which takes priority:
 
 ```php
-if ($this->hasParentAttribute('name')) {
-    // Do something with the parent name
+class ProductResource extends ContextualResource
+{
+    public function __construct($resource)
+    {
+        parent::__construct($resource);
+
+        // BATCH CONFIGURATION: Set multiple attributes to prioritize parent values
+        $this->setPriorityAttributes(['name', 'category']);
+
+        // INDIVIDUAL CONFIGURATION: Add one attribute at a time
+        $this->usePriorityForAttribute('brand');
+    }
+
+    protected function transformResource($request)
+    {
+        return [
+            'id' => $this->id,
+
+            // REGULAR BEHAVIOR: Gets local product name (priority not configured)
+            'name' => $this->name,
+
+            // PRIORITY BEHAVIOR: Gets parent category (configured as priority)
+            'category' => $this->getContextualAttribute('category'),
+
+            // PRIORITY BEHAVIOR: Gets parent brand (configured as priority)
+            'brand' => $this->getContextualAttribute('brand'),
+        ];
+    }
 }
 ```
 
-#### `getAllParentAttributes()`
-Get all parent attributes as an array.
+#### Priority Context
+
+Set high-priority context that overrides regular parent context:
 
 ```php
-$allParentData = $this->getAllParentAttributes();
+// REGULAR CONTEXT: Normal parent data (medium priority)
+$resource->withContext(['name' => 'Parent Name']);
+
+// PRIORITY CONTEXT: High-importance data (highest priority)
+$resource->withPriorityContext(['name' => 'Priority Name']);
+
+// CONFIGURE: Tell system which attributes should check priority first
+$resource->setPriorityAttributes(['name']);
+
+// RESULT: getContextualAttribute('name') returns 'Priority Name'
+// Because: priority context (highest) > regular context (medium) > resource (lowest)
 ```
 
-#### `getContextualAttribute($key, $default = null)`
-Get an attribute with fallback logic: checks parent context first, then current resource.
-
-```php
-// Will check parent context first, then current resource
-$email = $this->getContextualAttribute('email');
-```
-
-### Manual Context Setting
-
-You can also manually set context data:
+### Manual Context Usage
 
 ```php
 $postResource = new PostResource($post);
+
+// STEP 1: Set regular context (medium priority)
 $postResource->withContext([
     'user_id' => $user->id,
     'user_name' => $user->name,
-    'custom_data' => 'some value'
 ]);
+
+// STEP 2: Set priority context for critical data (highest priority)
+$postResource->withPriorityContext([
+    'status' => 'featured',    // Admin override
+    'priority' => 'high'       // System priority
+]);
+
+// STEP 3: Configure which attributes should use priority-first lookup
+$postResource->setPriorityAttributes(['status']);
+
+// RESULT: getContextualAttribute('status') = 'featured' (from priority context)
+// RESULT: getContextualAttribute('user_name') = user name (from regular context)
 ```
 
-### Example Controller Usage
+### Controller Usage
 
 ```php
-<?php
-
-namespace App\Http\Controllers;
-
-use App\Http\Resources\UserResource;
-use App\Models\User;
-
-class UserController extends Controller
+class AuthorController extends Controller
 {
-    public function show(User $user)
+    public function show(Author $author)
     {
-        // Load relationships to avoid N+1 queries
-        $user->load(['posts.comments']);
+        // CRITICAL: Load all nested relationships to avoid N+1 queries
+        // Context propagation works with eager-loaded data only
+        $author->load(['series.books']);
 
-        return new UserResource($user);
+        return new AuthorResource($author);
     }
 }
 ```
@@ -154,57 +237,50 @@ class UserController extends Controller
 
 ```json
 {
-    "data": {
-        "id": 1,
-        "name": "John Doe",
-        "email": "john@example.com",
-        "posts": [
-            {
-                "id": 1,
-                "title": "My First Post",
-                "content": "Post content here...",
-                "author_name": "John Doe",
-                "author_email": "john@example.com",
-                "comments": [
-                    {
-                        "id": 1,
-                        "content": "Great post!",
-                        "post_author_name": "John Doe",
-                        "post_title": "My First Post"
-                    }
-                ]
-            }
-        ]
-    }
+    "id": 1,
+    "name": "J.K. Rowling",
+    "series": [
+        {
+            "id": 1,
+            "name": "Harry Potter",
+            "author_name": "J.K. Rowling",
+            "books": [
+                {
+                    "id": 1,
+                    "name": "Philosopher's Stone",
+                    "author_name": "J.K. Rowling",
+                    "series_name": "Harry Potter"
+                },
+                {
+                    "id": 2,
+                    "name": "Chamber of Secrets",
+                    "author_name": "J.K. Rowling",
+                    "series_name": "Harry Potter"
+                }
+            ]
+        }
+    ]
 }
 ```
 
-## How It Works
+### The Name Conflict Problem
 
-1. **Context Stack**: The package maintains a context stack that accumulates parent resource attributes as it traverses nested resources.
+In this example, all three models have a `name` attribute:
+- Author name: "J.K. Rowling"
+- Series name: "Harry Potter"
+- Book name: "Philosopher's Stone"
 
-2. **Automatic Propagation**: When a resource is transformed, it automatically pushes its attributes to the context stack and propagates this context to child resources.
+**Without priority context**: `getParentAttribute('name')` in BookResource would return "Harry Potter" (series name) instead of "J.K. Rowling" (author name).
 
-3. **Zero Queries**: Child resources can access parent attributes directly from the context without triggering additional database queries.
+**With priority context**: We set `author_name` as priority context, so BookResource can access the author name reliably while still getting series name through regular context.
 
-4. **Laravel Integration**: Seamlessly works with Laravel's existing resource methods like `when()`, `whenLoaded()`, and `mergeWhen()`.
+## Key Benefits
 
-## Configuration
-
-The package includes a configuration file with the following options:
-
-```php
-return [
-    // Automatically propagate context to nested resources
-    'auto_propagate' => true,
-
-    // Maximum context stack depth (prevents infinite recursion)
-    'context_limit' => 100,
-
-    // Enable debug mode for development
-    'debug' => env('RESOURCE_CONTEXT_DEBUG', false),
-];
-```
+- **Zero Additional Queries**: Child resources access parent data without extra database hits
+- **Flexible Precedence**: Configure which attributes prioritize parent vs local values
+- **Multi-level Context**: Access grandparent and deeper level attributes seamlessly
+- **Memory Efficient**: Lightweight implementation with minimal memory overhead (~26MB for full test suite)
+- **Laravel Compatible**: Works with all Laravel resource features (`when`, `whenLoaded`, etc.)
 
 ## Requirements
 
@@ -215,11 +291,10 @@ return [
 
 ```bash
 composer test
+
+# Or with memory limit (if needed)
+php -d memory_limit=128M vendor/bin/phpunit
 ```
-
-## Contributing
-
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 

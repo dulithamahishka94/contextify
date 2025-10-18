@@ -19,6 +19,11 @@ class ContextualResourceTest extends TestCase
                 'id' => 2,
                 'title' => 'Child Item',
                 'parent_name' => 'John Doe',
+                'nested' => [
+                    'id' => 3,
+                    'description' => 'Nested Item',
+                    'grandparent_name' => 'John Doe',
+                ],
             ],
         ], $result);
     }
@@ -81,11 +86,65 @@ class ContextualResourceTest extends TestCase
         $this->assertEquals('Parent Name', $resource->getParentAttribute('name'));
         $this->assertEquals('parent@example.com', $resource->getParentAttribute('email'));
     }
+
+    public function testPriorityAttributes()
+    {
+        $resource = new TestConflictResource(['id' => 1, 'name' => 'Child Name']);
+        $resource->withContext(['name' => 'Parent Name']);
+
+        $this->assertEquals('Child Name', $resource->getContextualAttribute('name'));
+
+        $resource->setPriorityAttributes(['name']);
+        $this->assertEquals('Parent Name', $resource->getContextualAttribute('name'));
+    }
+
+    public function testUsePriorityForAttribute()
+    {
+        $resource = new TestConflictResource(['id' => 1, 'name' => 'Child Name']);
+        $resource->withContext(['name' => 'Parent Name']);
+
+        $this->assertEquals('Child Name', $resource->getContextualAttribute('name'));
+
+        $resource->usePriorityForAttribute('name');
+        $this->assertEquals('Parent Name', $resource->getContextualAttribute('name'));
+    }
+
+    public function testGetHigherLevelAttribute()
+    {
+        $resource = new TestConflictResource(['id' => 1, 'name' => 'Child Name']);
+        $resource->withContext(['name' => 'Parent Name', 'other' => 'Parent Other']);
+        $resource->withPriorityContext(['name' => 'Priority Name']);
+
+        $this->assertEquals('Priority Name', $resource->getHigherLevelAttribute('name'));
+        $this->assertEquals('Parent Other', $resource->getHigherLevelAttribute('other'));
+        $this->assertNull($resource->getHigherLevelAttribute('nonexistent'));
+    }
+
+    public function testGetResourceAttribute()
+    {
+        $resource = new TestConflictResource(['id' => 1, 'name' => 'Child Name']);
+        $resource->withContext(['name' => 'Parent Name']);
+
+        $this->assertEquals('Child Name', $resource->getResourceAttribute('name'));
+        $this->assertEquals(1, $resource->getResourceAttribute('id'));
+        $this->assertNull($resource->getResourceAttribute('nonexistent'));
+    }
+
+    public function testWithPriorityContext()
+    {
+        $resource = new TestConflictResource(['id' => 1, 'name' => 'Child Name']);
+        $resource->withContext(['name' => 'Parent Name']);
+        $resource->withPriorityContext(['name' => 'Priority Name', 'type' => 'priority']);
+
+        $resource->setPriorityAttributes(['name']);
+        $this->assertEquals('Priority Name', $resource->getContextualAttribute('name'));
+        $this->assertEquals(1, $resource->getContextualAttribute('id'));
+    }
 }
 
 class TestParentResource extends ContextualResource
 {
-    public function toArray($request = null)
+    protected function transformResource($request = null)
     {
         return [
             'id' => $this->resource['id'],
@@ -97,7 +156,7 @@ class TestParentResource extends ContextualResource
 
 class TestChildResource extends ContextualResource
 {
-    public function toArray($request = null)
+    protected function transformResource($request = null)
     {
         return [
             'id' => $this->resource['id'],
@@ -110,12 +169,24 @@ class TestChildResource extends ContextualResource
 
 class TestNestedResource extends ContextualResource
 {
-    public function toArray($request = null)
+    protected function transformResource($request = null)
     {
         return [
             'id' => $this->resource['id'],
             'description' => $this->resource['description'],
             'grandparent_name' => $this->getParentAttribute('name'),
+        ];
+    }
+}
+
+class TestConflictResource extends ContextualResource
+{
+    protected function transformResource($request = null)
+    {
+        return [
+            'id' => $this->resource['id'],
+            'name' => $this->resource['name'],
+            'contextual_name' => $this->getContextualAttribute('name'),
         ];
     }
 }

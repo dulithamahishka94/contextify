@@ -23,12 +23,12 @@ class ResourceContextTraitTest extends TestCase
         $testClass = new TestResourceContextClass();
 
         $testClass->withContext(['level' => 1, 'name' => 'Level 1']);
-        $testClass->pushContext();
+        $testClass->testPushContext();
 
         $testClass->withContext(['level' => 2, 'name' => 'Level 2']);
-        $testClass->pushContext();
+        $testClass->testPushContext();
 
-        $current = $testClass->getCurrentContext();
+        $current = $testClass->testGetCurrentContext();
         $this->assertArrayHasKey('level', $current);
     }
 
@@ -39,11 +39,47 @@ class ResourceContextTraitTest extends TestCase
 
         $mockResource = $this->createMock(\Illuminate\Http\Resources\Json\JsonResource::class);
         $mockResource->expects($this->once())
-                   ->method('withContext')
-                   ->willReturnSelf();
+                   ->method('toArray')
+                   ->with($this->anything())
+                   ->willReturn(['mocked' => 'data']);
 
-        $result = $testClass->propagateContextToResource($mockResource);
-        $this->assertInstanceOf(\Illuminate\Http\Resources\Json\JsonResource::class, $result);
+        $result = $testClass->testPropagateContextToResource($mockResource);
+        $this->assertEquals(['mocked' => 'data'], $result);
+    }
+
+    public function testPriorityContext()
+    {
+        $testClass = new TestResourceContextClass();
+
+        $testClass->withContext(['name' => 'Regular Name']);
+        $testClass->withPriorityContext(['name' => 'Priority Name']);
+
+        $this->assertEquals('Priority Name', $testClass->getHigherLevelAttribute('name'));
+        $this->assertEquals('Regular Name', $testClass->getParentAttribute('name'));
+    }
+
+    public function testGetResourceAttribute()
+    {
+        $testClass = new TestResourceContextClass();
+        $testClass->resource = ['id' => 1, 'name' => 'Resource Name'];
+
+        $testClass->withContext(['name' => 'Parent Name']);
+
+        $this->assertEquals('Resource Name', $testClass->getResourceAttribute('name'));
+        $this->assertEquals(1, $testClass->getResourceAttribute('id'));
+        $this->assertNull($testClass->getResourceAttribute('nonexistent'));
+    }
+
+    public function testGetHigherLevelAttribute()
+    {
+        $testClass = new TestResourceContextClass();
+        $testClass->resource = ['id' => 1, 'name' => 'Resource Name'];
+
+        $testClass->withContext(['name' => 'Parent Name']);
+        $testClass->withPriorityContext(['name' => 'Priority Name']);
+
+        $this->assertEquals('Priority Name', $testClass->getHigherLevelAttribute('name'));
+        $this->assertNull($testClass->getHigherLevelAttribute('nonexistent'));
     }
 }
 
@@ -53,17 +89,17 @@ class TestResourceContextClass
 
     public $resource;
 
-    public function pushContext(): void
+    public function testPushContext(): void
     {
         $this->pushContext();
     }
 
-    public function getCurrentContext(): array
+    public function testGetCurrentContext(): array
     {
         return $this->getCurrentContext();
     }
 
-    public function propagateContextToResource($resource)
+    public function testPropagateContextToResource($resource)
     {
         return $this->propagateContextToResource($resource);
     }
