@@ -1,14 +1,18 @@
 {
-    "name": "contextify/laravel-resource-context",
-    "description": "A Laravel package that allows nested resources to access parent resource attributes without additional database queries",
+    "name": "contextify/laravel-resource-optimizer",
+    "description": "A Laravel package that optimizes API resources with N+1 query detection, performance monitoring, smart caching, and development tools",
     "type": "library",
     "license": "MIT",
     "keywords": [
         "laravel",
         "resource",
-        "context",
-        "nested",
-        "optimization"
+        "optimization",
+        "performance",
+        "n+1",
+        "query-detection",
+        "caching",
+        "monitoring",
+        "api"
     ],
     "authors": [
         {
@@ -27,18 +31,18 @@
     },
     "autoload": {
         "psr-4": {
-            "Contextify\\LaravelResourceContext\\": "src/"
+            "Contextify\\LaravelResourceOptimizer\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Contextify\\LaravelResourceContext\\Tests\\": "tests/"
+            "Contextify\\LaravelResourceOptimizer\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "Contextify\\LaravelResourceContext\\ResourceContextServiceProvider"
+                "Contextify\\LaravelResourceOptimizer\\ResourceOptimizerServiceProvider"
             ]
         }
     },

@@ -1,16 +1,16 @@
 <?php
 
-namespace Contextify\LaravelResourceContext\Tests;
+namespace Contextify\LaravelResourceOptimizer\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
-use Contextify\LaravelResourceContext\ResourceContextServiceProvider;
+use Contextify\LaravelResourceOptimizer\ResourceOptimizerServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
     protected function getPackageProviders($app)
     {
         return [
-            ResourceContextServiceProvider::class,
+            ResourceOptimizerServiceProvider::class,
         ];
     }
 
